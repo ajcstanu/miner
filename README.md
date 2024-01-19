@@ -1,33 +1,6 @@
 # miner
-<html lang="en"> 
-<head> 
- <meta charset="UTF-8"> 
- <meta name="Viewport" content="width=device-width, initialscale=1.0"> 
- <title>Real-Time Object Tracking and Recognition</title> 
- <style> 
- body { 
- font-family: Arial, sans-serif;
- margin: 0;
- padding: 0;
- background-color: #f4f4f4;
- } 
- .header { 
- background-color: #333;
- color: #fff;
- text-align: center;
- padding: 10px;
- } 
- .container { 
- max-width: 800px;
- margin: 0 auto;
- padding: 20px;
 
- } 
- .project-info { 
- margin-top: 20px;
- } 
- </style> 
-</head> 
+
 <body> 
  <div class="header"> 
  <h1>Real-Time Object Tracking and Recognition System</h1> 
