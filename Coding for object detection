@@ -1,0 +1,165 @@
+import torch
+import cv2
+import random
+import os
+import threading
+import queue
+import win32com.client as wincl
+from torch.autograd import Variable
+from util import write_results, load_classes
+from preprocess import letterbox_image
+from darknet import Darknet
+from imutils.video import WebcamVideoStream, FPS
+import pickle as pkl
+
+# Setting up torch for GPU utilization
+if torch.cuda.is_available():
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cudnn.deterministic = True
+    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+
+speak = wincl.Dispatch("SAPI.SpVoice")  # Text-to-speech engine for Windows
+
+labels = {}
+b_boxes = {}
+
+
+def prep_image(img, inp_dim):
+    orig_im = img
+    dim = orig_im.shape[1], orig_im.shape[0]
+    img = letterbox_image(orig_im, (inp_dim, inp_dim))
+    img_ = img[:, :, ::-1].transpose((2, 0, 1)).copy()
+    img_ = torch.from_numpy(img_).float().div(255.0).unsqueeze(0)
+    return img_, orig_im, dim
+
+
+def write(bboxes, img, classes, colors):
+    class_idx = bboxes
+    bboxes = bboxes[1:5]
+    bboxes = bboxes.cpu().data.numpy()
+    bboxes = bboxes.astype(int)
+    b_boxes.update({"bbox": bboxes.tolist()})
+    cls = int(class_idx[-1])
+    label = "{0}".format(classes[cls])
+    labels.update({"Current Object": label})
+    color = random.choice(colors)
+
+    text_str = '%s' % (label)
+    font_face = cv2.FONT_HERSHEY_DUPLEX
+    font_scale = 0.6
+    font_thickness = 1
+    text_w, text_h = cv2.getTextSize(text_str, font_face, font_scale, font_thickness)[0]
+    text_pt = (bboxes[0], bboxes[1] - 3)
+    text_color = [255, 255, 255]
+
+    x, y, w, h = bboxes[0], bboxes[1], bboxes[2], bboxes[3]
+    distance = (2 * 3.14 * 180) / (w.item() + h.item() * 360) * 1000 + 3
+    feedback = ("{}".format(labels["Current Object"]) + " " + "is" + " at {} ".format(round(distance)) + "Inches")
+
+    print(feedback)
+
+    cv2.putText(img, str("{:.2f} Inches".format(distance)), (text_w + x, y),
+                cv2.FONT_HERSHEY_DUPLEX, font_scale, (0, 255, 0), font_thickness, cv2.LINE_AA)
+    cv2.rectangle(img, (bboxes[0], bboxes[1]), (bboxes[2] + text_w - 30, bboxes[3]), color, 2)
+    cv2.putText(img, text_str, text_pt, font_face, font_scale, text_color,
+                font_thickness, cv2.LINE_AA)
+
+
+class ObjectDetection:
+    def __init__(self, id):
+        self.cap = WebcamVideoStream(src=id).start()
+        self.cfgfile = "cfg/yolov3.cfg"
+        self.weightsfile = "yolov3.weights"
+        self.confidence = 0.6
+        self.nms_thesh = 0.8
+        self.num_classes = 80
+        self.classes = load_classes('data/coco.names')
+        self.colors = pkl.load(open("palette", "rb"))
+        self.model = Darknet(self.cfgfile)
+        self.CUDA = torch.cuda.is_available()
+        self.model.load_weights(self.weightsfile)
+        self.model.net_info["height"] = 160
+        self.inp_dim = int(self.model.net_info["height"])
+        self.width = 1280
+        self.height = 720
+        print("Loading network.....")
+
+        if self.CUDA:
+            self.model.cuda()
+        print("Network successfully loaded")
+        assert self.inp_dim % 32 == 0
+        assert self.inp_dim > 32
+        self.model.eval()
+
+    def main(self):
+        q = queue.Queue()
+        try:
+            while True:
+                def frame_render(queue_from_cam):
+                    frame = self.cap.read()
+                    frame = cv2.resize(frame, (self.width, self.height))
+                    queue_from_cam.put(frame)
+
+                cam = threading.Thread(target=frame_render, args=(q,))
+                cam.start()
+                cam.join()
+                frame = q.get()
+                q.task_done()
+                fps = FPS().start()
+
+                try:
+                    img, orig_im, dim = prep_image(frame, self.inp_dim)
+                    im_dim = torch.FloatTensor(dim).repeat(1, 2)
+
+                    if self.CUDA:
+                        im_dim = im_dim.cuda()
+                        img = img.cuda()
+
+                    output = self.model(Variable(img), self.CUDA)
+                    output = write_results(output, self.confidence, self.num_classes, nms=True,
+                                           nms_conf=self.nms_thesh)
+
+                    output = output.type(torch.half)
+
+                    if list(output.size()) == [1, 86]:
+                        print(output.size())
+                    else:
+                        output[:, 1:5] = torch.clamp(output[:, 1:5], 0.0, float(self.inp_dim)) / self.inp_dim
+
+                    output[:, [1, 3]] *= frame.shape[1]
+                    output[:, [2, 4]] *= frame.shape[0]
+                    list(map(lambda boxes: write(boxes, frame, self.classes, self.colors), output))
+
+                except Exception as e:
+                    print(f"Error in main loop: {e}")
+
+                finally:
+                    fps.update()
+                    fps.stop()
+                    print("[INFO] elapsed time: {:.2f}".format(fps.elapsed()))
+                    print("[INFO] approx. FPS: {:.1f}".format(fps.fps()))
+
+                    cv2.imshow("Object Detection Window", frame)
+
+                if cv2.waitKey(1) & 0xFF == ord('q'):
+                    break
+
+                continue
+
+                torch.cuda.empty_cache()
+
+        except Exception as e:
+            print(f"Error in main function: {e}")
+        finally:
+            self.cap.stop()
+
+
+if __name__ == "__main__":
+    id = 0
+    ObjectDetection(id).main()
+
+
+
+
+
