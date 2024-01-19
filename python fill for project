@@ -1,0 +1,96 @@
+import cv2 #this library is use to read images 
+from tkinter import * 
+import numpy as np 
+import face_recognition #use to recognize face 
+import os 
+from datetime import datetime, time #use to import date & time 
+# top = Tk() 
+# top.geometry("1000x750") 
+# name = Label(top, text = "UserId").place(x = 30,y = 50) 
+# email = Label(top, text = "Password").place(x = 30, y = 90) 
+# password = Label(top, text = "Submit").place(x = 30, y = 130) 
+# # b = Button(top,text = "Simple") 
+
+# # b.pack() 
+# e1 = Entry(top).place(x = 80, y = 50) 
+# e2 = Entry(top).place(x = 80, y = 90) 
+# #e3 = Entry(top).place(x = 95, y = 130) 
+# top.mainloop() 
+path = 'images' 
+images = [] 
+personNames = [] 
+myList = os.listdir(path) 
+print(myList) 
+for cu_img in myList: 
+ current_Img = cv2.imread(f'{path}/{cu_img}') #Put the path of image using 
+fstring and acces image list using cu_img 
+ images.append(current_Img) #Put the all images in image list 
+ personNames.append(os.path.splitext(cu_img)[0]) #Put the person name in 
+personNames list. Splitext helps to split image and its extension 
+print(personNames) 
+def faceEncodings(images): 
+ encodeList = [] 
+ for img in images: 
+ img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB) # cv2 read images in 
+BGR format convert it into RGB format using BGR2RGB 
+ encode = face_recognition.face_encodings(img)[0] 
+ encodeList.append(encode) 
+ return encodeList 
+#print(faceEncodings(images)) # by using this line we can see 128 different 
+features of out image 
+def attendance(name): 
+ with open('Attendance.csv', 'r+') as f: #r+ which read name and append also 
+ myDataList = f.readlines() 
+ nameList = [] 
+ 
+ for line in myDataList: 
+ entry = line.split(',') 
+ nameList.append(entry[0]) 
+ if name not in nameList: 
+ time_now = datetime.now() #'now' function will record current time & 
+date both 
+ timeStr = time_now.strftime('%H:%M:%S') 
+ dateStr = time_now.strftime('%d/%m/%Y') 
+ f.writelines(f'\n{name},{timeStr},{dateStr}') 
+encodeListKnown = faceEncodings(images) 
+print('All Codings Complete!!!') 
+cap = cv2.VideoCapture(0) #By videocapture function of cv2 we can read camera. 
+0 is a camera id if we use external camera then we will write 1 
+while True: 
+ ret, frame = cap.read() 
+ faces = cv2.resize(frame, (0, 0), None, 0.25, 0.25) 
+ faces = cv2.cvtColor(faces, cv2.COLOR_BGR2RGB) 
+ facesCurrentFrame = face_recognition.face_locations(faces) 
+ encodesCurrentFrame = face_recognition.face_encodings(faces, 
+facesCurrentFrame) 
+ for encodeFace, faceLoc in zip(encodesCurrentFrame, facesCurrentFrame): 
+ matches = face_recognition.compare_faces(encodeListKnown, encodeFace) 
+ faceDis = face_recognition.face_distance(encodeListKnown, encodeFace) 
+ matchIndex = np.argmin(faceDis) 
+ if matches[matchIndex]: 
+ name = personNames[matchIndex].upper() 
+ # print(name) 
+ y1, x2, y2, x1 = faceLoc 
+ y1, x2, y2, x1 = y1 * 4, x2 * 4, y2 * 4, x1 * 4 
+ cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2) 
+
+ cv2.rectangle(frame, (x1, y2 - 35), (x2, y2), (0, 255, 0), cv2.FILLED) 
+ cv2.putText(frame, name, (x1 + 6, y2 - 6), 
+cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2) # This line is use to 
+put name on camera frame 
+ attendance(name) 
+ else: 
+ name="unknown" 
+ y1, x2, y2, x1 = faceLoc 
+ y1, x2, y2, x1 = y1 * 4, x2 * 4, y2 * 4, x1 * 4 
+ cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2) 
+ cv2.rectangle(frame, (x1, y2 - 35), (x2, y2), (0, 255, 0), cv2.FILLED) 
+ cv2.putText(frame, name, (x1 + 6, y2 - 6), 
+cv2.FONT_HERSHEY_COMPLEX, 1, (255, 255, 255), 2) # This line is use to 
+put name on camera frame 
+ attendance(name) 
+ cv2.imshow('camera', frame) 
+ if cv2.waitKey(1) == 13: # 13 is ascii code for enter key 
+ break 
+cap.release() 
+cv2.destroyAllWindows() 
